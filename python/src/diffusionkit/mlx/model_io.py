@@ -759,6 +759,42 @@ def convert_gguf_state_dict(weights):
                 
     return converted
 
+def load_gguf_file(filepath: str) -> Dict[str, Any]:
+    """Load weights from a GGUF file format.
+    
+    Args:
+        filepath: Path to the GGUF file
+        
+    Returns:
+        Dictionary of weights
+        
+    Raises:
+        ImportError: If gguf package is not installed
+        ValueError: If file loading fails
+    """
+    try:
+        import gguf
+        import numpy as np
+        
+        # Open and read the GGUF file
+        reader = gguf.GGUFReader(filepath)
+        tensors = reader.tensors
+        
+        # Convert to dictionary format
+        weights = {}
+        for name in tensors.keys():
+            # Get the tensor data
+            tensor_data = tensors[name].numpy()
+            # Convert numpy array to mx.array
+            weights[name] = mx.array(tensor_data)
+            
+        return weights
+        
+    except ImportError:
+        raise ImportError("Please install gguf package to load quantized models")
+    except Exception as e:
+        raise ValueError(f"Failed to load GGUF file {filepath}: {str(e)}")
+
 def load_mmdit(
     key: str = _DEFAULT_MMDIT,
     float16: bool = False,
@@ -798,15 +834,11 @@ def load_mmdit(
             weights_path = LOCAl_SD3_CKPT or hf_hub_download(key, weights_path)
 
     # Load and process weights
-    if weights_path.endswith('.gguf'):
-        try:
-            import gguf
-            weights = gguf.load(weights_path)
-            weights = convert_gguf_state_dict(weights)
-        except ImportError:
-            raise ImportError("Please install gguf package to load quantized models")
-        except Exception as e:
-            raise ValueError(f"Failed to load GGUF file {weights_path}: {str(e)}")
+    if isinstance(weights_path, str) and weights_path.endswith('.gguf'):
+        # Load GGUF file
+        weights = load_gguf_file(weights_path)
+        # Convert GGUF weights to expected format
+        weights = convert_gguf_state_dict(weights)
     else:
         weights = mx.load(weights_path)
         if key.startswith("argmaxinc/mlx-FLUX"):
@@ -832,30 +864,6 @@ def load_mmdit(
     
     model.load_weights(list(weights.items()))
     return model
-
-def load_gguf_weights(filepath: str):
-    """Load weights from a GGUF file format.
-    
-    Args:
-        filepath: Path to the GGUF file, can be either a local path or a downloaded HuggingFace file
-    
-    Returns:
-        Loaded weights dictionary
-        
-    Raises:
-        ImportError: If gguf package is not installed
-        ValueError: If the file is not found or invalid
-    """
-    try:
-        import gguf
-        if not os.path.exists(filepath):
-            raise ValueError(f"GGUF file not found: {filepath}")
-        try:
-            return gguf.load(filepath)
-        except Exception as e:
-            raise ValueError(f"Failed to load GGUF file {filepath}: {str(e)}")
-    except ImportError:
-        raise ImportError("Please install gguf package to load quantized models")
 
 
 def load_flux(

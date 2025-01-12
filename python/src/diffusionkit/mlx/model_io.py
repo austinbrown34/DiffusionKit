@@ -778,15 +778,18 @@ def load_gguf_file(filepath: str) -> Dict[str, Any]:
         
         # Open and read the GGUF file
         reader = gguf.GGUFReader(filepath)
-        tensors = reader.tensors
         
         # Convert to dictionary format
         weights = {}
-        for name in tensors.keys():
-            # Get the tensor data
-            tensor_data = tensors[name].numpy()
-            # Convert numpy array to mx.array
-            weights[name] = mx.array(tensor_data)
+        # Reader.tensors is a list of gguf.Tensor objects with name and data attributes
+        for tensor in reader.tensors:
+            tensor_name = tensor.name
+            tensor_data = tensor.data
+            if isinstance(tensor_data, np.ndarray):
+                weights[tensor_name] = mx.array(tensor_data)
+            else:
+                # Handle case where tensor_data is not a numpy array
+                weights[tensor_name] = mx.array(np.array(tensor_data))
             
         return weights
         

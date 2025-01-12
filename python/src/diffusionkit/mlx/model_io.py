@@ -34,31 +34,28 @@ from .vae import Autoencoder, VAEDecoder, VAEEncoder
 
 RANK = 32
 _DEFAULT_MMDIT = "argmaxinc/mlx-stable-diffusion-3-medium"
+MMDIT_CKPT = {
+    "argmaxinc/mlx-stable-diffusion-3-medium": "argmaxinc/mlx-stable-diffusion-3-medium",
+    "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "argmaxinc/mlx-stable-diffusion-3-medium-4bit",
+    "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "argmaxinc/mlx-stable-diffusion-3-medium-8bit",
+    "argmaxinc/mlx-stable-diffusion-3.5-large": "argmaxinc/mlx-stable-diffusion-3.5-large",
+    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit",
+    "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "argmaxinc/mlx-stable-diffusion-3.5-large-8bit",
+}
+
 _MMDIT = {
     "argmaxinc/mlx-stable-diffusion-3-medium": {
         "argmaxinc/mlx-stable-diffusion-3-medium": "sd3_medium.safetensors",
+        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "sd3_medium-Q4_K_S.gguf",
+        "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "sd3_medium-Q8_0.gguf",
         "vae": "sd3_medium.safetensors",
     },
-    "argmaxinc/mlx-FLUX.1-schnell": {
-        "argmaxinc/mlx-FLUX.1-schnell": "flux-schnell.safetensors",
-        "vae": "ae.safetensors",
-    },
-    "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": {
-        "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": "flux-schnell-4bit-quantized.safetensors",
-        "vae": "ae.safetensors",
-    },
-    "argmaxinc/mlx-FLUX.1-dev": {
-        "argmaxinc/mlx-FLUX.1-dev": "flux1-dev.safetensors",
-        "vae": "ae.safetensors",
-    },
     "argmaxinc/mlx-stable-diffusion-3.5-large": {
-        "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors",
+        "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors", 
+        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "sd3.5_large-Q4_K_S.gguf",
+        "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "sd3.5_large-Q8_0.gguf",
         "vae": "sd3.5_large.safetensors",
-    },
-    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": {
-        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "sd3.5_large_4bit_quantized.safetensors",
-        "vae": "sd3.5_large_4bit_quantized.safetensors",
-    },
+    }
 }
 _DEFAULT_MODEL = "argmaxinc/stable-diffusion"
 _MODELS = {
@@ -711,38 +708,86 @@ def load_mmdit(
     model_key: str = "mmdit_2b",
     low_memory_mode: bool = True,
     only_modulation_dict: bool = False,
+    quantization: Optional[str] = None,  # Add quantization parameter
+    quantized_gguf_path: Optional[str] = None  # Add path to local GGUF file
 ):
-    """Load the MM-DiT model from the checkpoint file."""
-    """only_modulation_dict: Only returns the modulation dictionary"""
+    """Load the MM-DiT model from the checkpoint file.
+    
+    Args:
+        quantization: Optional quantization level ("4bit" or "8bit")
+    """
     dtype = _FLOAT16 if float16 else mx.float32
     config = _CONFIG[key]
     config.low_memory_mode = low_memory_mode
     model = MMDiT(config)
 
-    mmdit_weights = _MMDIT[key][model_key]
-    mmdit_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, mmdit_weights)
-    hf_hub_download(key, "config.json")
-    weights = mx.load(mmdit_weights_ckpt)
-    prefix = "model.diffusion_model."
+    # Modify key based on quantization
+    if quantization:
+        if quantization not in ["4bit", "8bit"]:
+            raise ValueError("Quantization must be either '4bit' or '8bit'")
+        key_suffix = "-4bit" if quantization == "4bit" else "-8bit"
+        model_key = f"{model_key}{key_suffix}"
 
-    if key != "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized":
-        weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
+    # Handle local GGUF file if provided
+    if quantization and quantized_gguf_path:
+        if not os.path.exists(quantized_gguf_path):
+            raise ValueError(f"Local GGUF file not found: {quantized_gguf_path}")
+        mmdit_weights_ckpt = quantized_gguf_path
+        weights = load_gguf_weights(mmdit_weights_ckpt)
     else:
-        nn.quantize(
-            model, class_predicate=lambda _, module: isinstance(module, nn.Linear)
-        )
-        weights = {k.replace(prefix, ""): v for k, v in weights.items() if prefix in k}
-
+        mmdit_weights = _MMDIT[key][model_key]
+        mmdit_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, mmdit_weights)
+        
+        # Load weights based on format
+        if mmdit_weights.endswith('.gguf'):
+        # Handle GGUF quantized weights
+        weights = load_gguf_weights(mmdit_weights_ckpt)
+        if quantization == "4bit":
+            nn.quantize(model, bits=4)
+        elif quantization == "8bit":
+            nn.quantize(model, bits=8)
+    else:
+        # Handle regular safetensors weights
+        weights = mx.load(mmdit_weights_ckpt)
+        
+    prefix = "model.diffusion_model."
+    weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
+    
     weights = {
-        k: v.astype(dtype) if v.dtype != mx.uint32 else v for k, v in weights.items()
+        k: v.astype(dtype) if v.dtype != mx.uint32 else v 
+        for k, v in weights.items()
     }
+    
     if only_modulation_dict:
         weights = {k: v for k, v in weights.items() if "adaLN" in k}
         return tree_flatten(weights)
+        
     model.load_weights(list(weights.items()))
-
     return model
 
+def load_gguf_weights(filepath: str):
+    """Load weights from a GGUF file format.
+    
+    Args:
+        filepath: Path to the GGUF file, can be either a local path or a downloaded HuggingFace file
+    
+    Returns:
+        Loaded weights dictionary
+        
+    Raises:
+        ImportError: If gguf package is not installed
+        ValueError: If the file is not found or invalid
+    """
+    try:
+        import gguf
+        if not os.path.exists(filepath):
+            raise ValueError(f"GGUF file not found: {filepath}")
+        try:
+            return gguf.load(filepath)
+        except Exception as e:
+            raise ValueError(f"Failed to load GGUF file {filepath}: {str(e)}")
+    except ImportError:
+        raise ImportError("Please install gguf package to load quantized models")
 
 def load_flux(
     key: str = "argmaxinc/mlx-FLUX.1-schnell",

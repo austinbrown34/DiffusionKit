@@ -59,6 +59,14 @@ _MMDIT = {
         "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "sd3.5_large_4bit_quantized.safetensors",
         "vae": "sd3.5_large_4bit_quantized.safetensors",
     },
+    "argmaxinc/mlx-stable-diffusion-3-medium-8bit-quantized": {
+        "argmaxinc/mlx-stable-diffusion-3-medium-8bit-quantized": "sd3_medium_8bit_quantized.safetensors",
+        "vae": "sd3_medium_8bit_quantized.safetensors",
+    },
+    "argmaxinc/mlx-stable-diffusion-3.5-large-8bit-quantized": {
+        "argmaxinc/mlx-stable-diffusion-3.5-large-8bit-quantized": "sd3.5_large_8bit_quantized.safetensors",
+        "vae": "sd3.5_large_8bit_quantized.safetensors",
+    }
 }
 _DEFAULT_MODEL = "argmaxinc/stable-diffusion"
 _MODELS = {
@@ -728,9 +736,17 @@ def load_mmdit(
     if key != "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized":
         weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
     else:
-        nn.quantize(
-            model, class_predicate=lambda _, module: isinstance(module, nn.Linear)
-        )
+        if "8bit-quantized" in key:
+            # Add 8-bit quantization logic here
+            nn.quantize(
+                model, 
+                class_predicate=lambda _, module: isinstance(module, nn.Linear),
+                bits=8  # You'll need to add this parameter to MLX's quantize function
+            )
+        else:
+            nn.quantize(
+                model, class_predicate=lambda _, module: isinstance(module, nn.Linear), bits=4
+            )
         weights = {k.replace(prefix, ""): v for k, v in weights.items() if prefix in k}
 
     weights = {

@@ -708,61 +708,96 @@ def load_mmdit(
     model_key: str = "mmdit_2b",
     low_memory_mode: bool = True,
     only_modulation_dict: bool = False,
-    quantization: Optional[str] = None,  # Add quantization parameter
-    quantized_gguf_path: Optional[str] = None  # Add path to local GGUF file
-):
+    quantization: Optional[str] = None,  # "4bit" or "8bit"
+    quantized_gguf_path: Optional[str] = None
+) -> Union[MMDiT, List[Tuple[str, mx.array]]]:
     """Load the MM-DiT model from the checkpoint file.
     
     Args:
+        key: Model identifier from predefined model keys
+        float16: Whether to use float16 precision
+        model_key: Specific model configuration key
+        low_memory_mode: Whether to use low memory mode
+        only_modulation_dict: Only return the modulation dictionary
         quantization: Optional quantization level ("4bit" or "8bit")
+        quantized_gguf_path: Optional path to local GGUF file
+    
+    Returns:
+        Either an MMDiT model instance or a list of weight tuples if only_modulation_dict=True
+        
+    Raises:
+        ValueError: For invalid quantization values or file paths
+        ImportError: If gguf package is missing when needed
     """
+    # Set up dtype and config
     dtype = _FLOAT16 if float16 else mx.float32
     config = _CONFIG[key]
     config.low_memory_mode = low_memory_mode
+    
+    # Initialize model with proper configuration
     model = MMDiT(config)
-
-    # Modify key based on quantization
+    
+    # Handle quantization if specified
     if quantization:
         if quantization not in ["4bit", "8bit"]:
             raise ValueError("Quantization must be either '4bit' or '8bit'")
-        key_suffix = "-4bit" if quantization == "4bit" else "-8bit"
-        model_key = f"{model_key}{key_suffix}"
-
-    # Handle local GGUF file if provided
-    if quantization and quantized_gguf_path:
+        bits = int(quantization[0])
+        nn.quantize(model, bits=bits)
+    
+    # Load weights based on source (GGUF or safetensors)
+    if quantized_gguf_path:
+        # Load from local GGUF file
         if not os.path.exists(quantized_gguf_path):
-            raise ValueError(f"Local GGUF file not found: {quantized_gguf_path}")
-        mmdit_weights_ckpt = quantized_gguf_path
-        weights = load_gguf_weights(mmdit_weights_ckpt)
+            raise ValueError(f"GGUF file not found: {quantized_gguf_path}")
+        try:
+            import gguf
+            weights = gguf.load(quantized_gguf_path)
+        except ImportError:
+            raise ImportError("Please install gguf package to load quantized models")
+        except Exception as e:
+            raise ValueError(f"Failed to load GGUF file {quantized_gguf_path}: {str(e)}")
+            
+        # No prefix adjustment needed for GGUF files as they're already properly formatted
+        
     else:
+        # Load from safetensors (either local or downloaded)
         mmdit_weights = _MMDIT[key][model_key]
         mmdit_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, mmdit_weights)
         
-        # Load weights based on format
-        if mmdit_weights.endswith('.gguf'):
-        # Handle GGUF quantized weights
-        weights = load_gguf_weights(mmdit_weights_ckpt)
-        if quantization == "4bit":
-            nn.quantize(model, bits=4)
-        elif quantization == "8bit":
-            nn.quantize(model, bits=8)
-    else:
-        # Handle regular safetensors weights
+        if not os.path.exists(mmdit_weights_ckpt):
+            raise ValueError(f"Weight file not found: {mmdit_weights_ckpt}")
+            
         weights = mx.load(mmdit_weights_ckpt)
         
-    prefix = "model.diffusion_model."
-    weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
+        # Handle different model types
+        if key.startswith("argmaxinc/mlx-FLUX"):
+            weights = flux_state_dict_adjustments(
+                weights,
+                prefix="",
+                hidden_size=config.hidden_size,
+                mlp_ratio=config.mlp_ratio
+            )
+        else:
+            prefix = "model.diffusion_model."
+            weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
     
+    # Convert weights to proper dtype
     weights = {
         k: v.astype(dtype) if v.dtype != mx.uint32 else v 
         for k, v in weights.items()
     }
     
+    # Handle modulation dictionary if requested
     if only_modulation_dict:
         weights = {k: v for k, v in weights.items() if "adaLN" in k}
         return tree_flatten(weights)
-        
-    model.load_weights(list(weights.items()))
+    
+    # Load weights into model
+    if key.startswith("argmaxinc/mlx-FLUX"):
+        model.update(tree_unflatten(tree_flatten(weights)))
+    else:
+        model.load_weights(list(weights.items()))
+    
     return model
 
 def load_gguf_weights(filepath: str):

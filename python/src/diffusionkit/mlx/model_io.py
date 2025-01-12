@@ -7,7 +7,7 @@
 
 import json
 import os
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import mlx.core as mx
 from huggingface_hub import hf_hub_download

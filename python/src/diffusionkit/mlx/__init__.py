@@ -34,6 +34,7 @@ from argmaxtools.test_utils import AppleSiliconContextMixin, InferenceContextSpe
 from argmaxtools.utils import get_logger
 from diffusionkit.utils import bytes2gigabytes
 from PIL import Image
+from huggingface_hub import hf_hub_download
 
 from .sampler import FluxSampler, ModelSamplingDiscreteFlow
 

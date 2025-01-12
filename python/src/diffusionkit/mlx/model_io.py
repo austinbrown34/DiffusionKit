@@ -40,7 +40,7 @@ MMDIT_CKPT = {
     "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "argmaxinc/mlx-stable-diffusion-3-medium-4bit",
     "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "argmaxinc/mlx-stable-diffusion-3-medium-8bit",
     "argmaxinc/mlx-stable-diffusion-3.5-large": "argmaxinc/mlx-stable-diffusion-3.5-large",
-    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit",
+    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized",
     "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "argmaxinc/mlx-stable-diffusion-3.5-large-8bit",
 }
 
@@ -53,7 +53,7 @@ _MMDIT = {
     },
     "argmaxinc/mlx-stable-diffusion-3.5-large": {
         "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors",
-        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "mflux_models/sd3-large-4bit/sd3.5_large-Q4_K_M.gguf",
+        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized",
         "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "mflux_models/sd3-large-8bit/sd3.5_large-Q8_0.gguf",
         "vae": "sd3.5_large.safetensors",
     }

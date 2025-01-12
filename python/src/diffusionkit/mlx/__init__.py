@@ -71,6 +71,8 @@ class DiffusionPipeline:
         low_memory_mode: bool = True,
         a16: bool = False,
         local_ckpt=None,
+        quantization: Optional[str] = None,  # Add quantization parameter
+        quantized_gguf_path: Optional[str] = None,  # Add path to local GGUF file
     ):
         model_io.LOCAl_SD3_CKPT = local_ckpt
         self.float16_dtype = mx.float16
@@ -82,6 +84,8 @@ class DiffusionPipeline:
         self.low_memory_mode = low_memory_mode
         self.model = _DEFAULT_MODEL
         self.model_version = model_version
+        self.quantization = quantization
+        self.quantized_gguf_path = quantized_gguf_path
         self.sampler = ModelSamplingDiscreteFlow(shift=shift)
         self.latent_format = SD3LatentFormat()
         self.use_clip_g = True
@@ -95,6 +99,7 @@ class DiffusionPipeline:
                 model_key=self.model_version,
                 low_memory_mode=self.low_memory_mode,
                 only_modulation_dict=only_modulation_dict,
+                quantization=self.quantization,
             )
         self.mmdit = load_mmdit(
             float16=True if self.dtype == self.float16_dtype else False,
@@ -102,6 +107,7 @@ class DiffusionPipeline:
             model_key=self.model_version,
             low_memory_mode=self.low_memory_mode,
             only_modulation_dict=only_modulation_dict,
+            quantization=self.quantization,
         )
 
     def check_and_load_models(self):

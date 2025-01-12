@@ -871,12 +871,28 @@ def load_vae_decoder(
     )
 
     dtype = _FLOAT16 if float16 else mx.float32
-    vae_weights = _MMDIT[key][model_key]
-    vae_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, vae_weights)
-    weights = mx.load(vae_weights_ckpt)
-    prefix = _PREFIX[key]["vae_decoder"]
 
-    if key != "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized":
+    # Handle local paths vs HuggingFace paths
+    if key.endswith('.safetensors'):
+        # For local paths, use the file directly
+        vae_weights_ckpt = key
+        # Determine prefix based on filename
+        if 'sd3-medium' in key.lower() or 'sd3-large' in key.lower():
+            prefix = "first_stage_model.decoder."
+        else:
+            prefix = "decoder."
+    else:
+        # Original HuggingFace path handling
+        vae_weights = _MMDIT[key][model_key]
+        vae_weights_ckpt = LOCAL_SD3_CKPT or hf_hub_download(key, vae_weights)
+        prefix = _PREFIX[key]["vae_decoder"]
+
+    weights = mx.load(vae_weights_ckpt)
+    
+    # Check if we're using a quantized model
+    is_quantized = "4bit-quantized" in key.lower() if isinstance(key, str) else False
+
+    if not is_quantized:
         weights = vae_decoder_state_dict_adjustments(weights, prefix=prefix)
     else:
         weights = {k.replace(prefix, ""): v for k, v in weights.items() if prefix in k}
@@ -903,12 +919,28 @@ def load_vae_encoder(
     )
 
     dtype = _FLOAT16 if float16 else mx.float32
-    vae_weights = _MMDIT[key][model_key]
-    vae_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, vae_weights)
-    weights = mx.load(vae_weights_ckpt)
-    prefix = _PREFIX[key]["vae_encoder"]
 
-    if key != "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized":
+    # Handle local paths vs HuggingFace paths
+    if key.endswith('.safetensors'):
+        # For local paths, use the file directly
+        vae_weights_ckpt = key
+        # Determine prefix based on filename
+        if 'sd3-medium' in key.lower() or 'sd3-large' in key.lower():
+            prefix = "first_stage_model.encoder."
+        else:
+            prefix = "encoder."
+    else:
+        # Original HuggingFace path handling
+        vae_weights = _MMDIT[key][model_key]
+        vae_weights_ckpt = LOCAL_SD3_CKPT or hf_hub_download(key, vae_weights)
+        prefix = _PREFIX[key]["vae_encoder"]
+
+    weights = mx.load(vae_weights_ckpt)
+    
+    # Check if we're using a quantized model
+    is_quantized = "4bit-quantized" in key.lower() if isinstance(key, str) else False
+
+    if not is_quantized:
         weights = vae_encoder_state_dict_adjustments(weights, prefix=prefix)
     else:
         weights = {k.replace(prefix, ""): v for k, v in weights.items() if prefix in k}

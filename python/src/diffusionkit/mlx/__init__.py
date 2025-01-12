@@ -4,22 +4,6 @@
 # For licensing see accompanying LICENSE.md file.
 # Copyright (C) 2024 Argmax, Inc. All Rights Reserved.
 #
-from mlx.utils import tree_flatten, tree_unflatten
-from .model_io import (
-    _DEFAULT_MODEL,
-    _CONFIG,
-    _MMDIT,
-    MMDiT,
-    load_flux,
-    load_mmdit,
-    load_t5_encoder,
-    load_t5_tokenizer,
-    load_text_encoder,
-    load_tokenizer,
-    load_vae_decoder,
-    load_vae_encoder,
-    mmdit_state_dict_adjustments,
-)
 
 import gc
 import math
@@ -34,8 +18,18 @@ from argmaxtools.test_utils import AppleSiliconContextMixin, InferenceContextSpe
 from argmaxtools.utils import get_logger
 from diffusionkit.utils import bytes2gigabytes
 from PIL import Image
-from huggingface_hub import hf_hub_download
 
+from .model_io import (
+    _DEFAULT_MODEL,
+    load_flux,
+    load_mmdit,
+    load_t5_encoder,
+    load_t5_tokenizer,
+    load_text_encoder,
+    load_tokenizer,
+    load_vae_decoder,
+    load_vae_encoder,
+)
 from .sampler import FluxSampler, ModelSamplingDiscreteFlow
 
 logger = get_logger(__name__)
@@ -76,93 +70,50 @@ class DiffusionPipeline:
         model_version: str = "argmaxinc/mlx-stable-diffusion-3-medium",
         low_memory_mode: bool = True,
         a16: bool = False,
-        local_ckpt: Optional[str] = None,
+        local_ckpt=None,
     ):
-        # Check if model_version is a local file path
-        if model_version.endswith('.safetensors'):
-            # If it's a local path, use it directly
-            self.mmdit_ckpt = model_version
-            self.is_local_model = True
-            self.model_version = model_version
-
-            # Map to appropriate config based on filename
-            if 'sd3-medium' in model_version.lower():
-                self.model_config_key = "argmaxinc/mlx-stable-diffusion-3-medium"
-            elif 'sd3-large' in model_version.lower():
-                self.model_config_key = "argmaxinc/mlx-stable-diffusion-3.5-large"
-            else:
-                # Default to medium if can't determine
-                self.model_config_key = "argmaxinc/mlx-stable-diffusion-3-medium"
-        else:
-            # Use HuggingFace model path
-            self.mmdit_ckpt = MMDIT_CKPT[model_version]
-            self.is_local_model = False
-            self.model_version = model_version
-            self.model_config_key = model_version
-
-        model_io.LOCAL_SD3_CKPT = local_ckpt
+        model_io.LOCAl_SD3_CKPT = local_ckpt
         self.float16_dtype = mx.float16
         model_io._FLOAT16 = self.float16_dtype
         self.dtype = self.float16_dtype if w16 else mx.float32
         self.activation_dtype = self.float16_dtype if a16 else mx.float32
         self.use_t5 = use_t5
-        self.low_memory_mode = low_memory_mode  
+        self.mmdit_ckpt = MMDIT_CKPT[model_version]
+        self.low_memory_mode = low_memory_mode
         self.model = _DEFAULT_MODEL
+        self.model_version = model_version
         self.sampler = ModelSamplingDiscreteFlow(shift=shift)
         self.latent_format = SD3LatentFormat()
         self.use_clip_g = True
         self.check_and_load_models()
 
     def load_mmdit(self, only_modulation_dict=False):
-        """Load the MMDiT model, either from local file or HuggingFace."""
-        dtype = self.float16_dtype if self.dtype == self.float16_dtype else mx.float32
-        config = _CONFIG[self.model_config_key]
-        config.low_memory_mode = self.low_memory_mode
-        model = MMDiT(config)
-
-        if self.is_local_model:
-            # Load directly from local file
-            weights = mx.load(self.mmdit_ckpt)
-            prefix = "model.diffusion_model."
-        else:
-            # Load from HuggingFace
-            mmdit_weights = _MMDIT[self.mmdit_ckpt][self.model_version]
-            mmdit_weights_ckpt = model_io.LOCAL_SD3_CKPT or hf_hub_download(self.mmdit_ckpt, mmdit_weights)
-            weights = mx.load(mmdit_weights_ckpt)
-            prefix = "model.diffusion_model."
-
         if only_modulation_dict:
-            weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
-            weights = {k: v for k, v in weights.items() if "adaLN" in k}
-            return tree_flatten(weights)
-
-        # Process weights for full model loading
-        if not self.is_local_model or "4bit-quantized" not in self.model_config_key:
-            weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
-        else:
-            nn.quantize(model, class_predicate=lambda _, module: isinstance(module, nn.Linear))
-            weights = {k.replace(prefix, ""): v for k, v in weights.items() if prefix in k}
-
-        weights = {k: v.astype(dtype) if v.dtype != mx.uint32 else v for k, v in weights.items()}
-        model.load_weights(list(weights.items()))
-        
-        self.mmdit = model
+            return load_mmdit(
+                float16=True if self.dtype == self.float16_dtype else False,
+                key=self.mmdit_ckpt,
+                model_key=self.model_version,
+                low_memory_mode=self.low_memory_mode,
+                only_modulation_dict=only_modulation_dict,
+            )
+        self.mmdit = load_mmdit(
+            float16=True if self.dtype == self.float16_dtype else False,
+            key=self.mmdit_ckpt,
+            model_key=self.model_version,
+            low_memory_mode=self.low_memory_mode,
+            only_modulation_dict=only_modulation_dict,
+        )
 
     def check_and_load_models(self):
         if not hasattr(self, "mmdit"):
             self.load_mmdit()
         if not hasattr(self, "decoder"):
-            # Use mmdit_ckpt directly when loading decoder for local path support
             self.decoder = load_vae_decoder(
                 float16=True if self.dtype == self.float16_dtype else False,
                 key=self.mmdit_ckpt,
             )
         if not hasattr(self, "encoder"):
-            # Use mmdit_ckpt directly when loading encoder for local path support
-            self.encoder = load_vae_encoder(
-                float16=False, 
-                key=self.mmdit_ckpt
-            )
+            self.encoder = load_vae_encoder(float16=False, key=self.mmdit_ckpt)
 
         if not hasattr(self, "clip_l"):
             self.clip_l = load_text_encoder(
@@ -198,9 +149,8 @@ class DiffusionPipeline:
                 low_memory_mode=self.low_memory_mode,
             )
         if not hasattr(self, "t5_tokenizer") or self.t5_tokenizer is None:
-            # Use model_config_key instead of model_version for T5 settings
             self.t5_tokenizer = load_t5_tokenizer(
-                max_context_length=T5_MAX_LENGTH[self.model_config_key]
+                max_context_length=T5_MAX_LENGTH[self.model_version]
             )
         self.use_t5 = True
 

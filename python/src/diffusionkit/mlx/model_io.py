@@ -6,7 +6,8 @@
 #
 
 import json
-from typing import Optional
+import os
+from typing import List, Optional, Tuple, Union
 
 import mlx.core as mx
 from huggingface_hub import hf_hub_download
@@ -34,28 +35,31 @@ from .vae import Autoencoder, VAEDecoder, VAEEncoder
 
 RANK = 32
 _DEFAULT_MMDIT = "argmaxinc/mlx-stable-diffusion-3-medium"
-MMDIT_CKPT = {
-    "argmaxinc/mlx-stable-diffusion-3-medium": "argmaxinc/mlx-stable-diffusion-3-medium",
-    "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "argmaxinc/mlx-stable-diffusion-3-medium-4bit",
-    "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "argmaxinc/mlx-stable-diffusion-3-medium-8bit",
-    "argmaxinc/mlx-stable-diffusion-3.5-large": "argmaxinc/mlx-stable-diffusion-3.5-large",
-    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit",
-    "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "argmaxinc/mlx-stable-diffusion-3.5-large-8bit",
-}
-
 _MMDIT = {
     "argmaxinc/mlx-stable-diffusion-3-medium": {
         "argmaxinc/mlx-stable-diffusion-3-medium": "sd3_medium.safetensors",
-        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "sd3_medium-Q4_K_S.gguf",
-        "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "sd3_medium-Q8_0.gguf",
         "vae": "sd3_medium.safetensors",
     },
+    "argmaxinc/mlx-FLUX.1-schnell": {
+        "argmaxinc/mlx-FLUX.1-schnell": "flux-schnell.safetensors",
+        "vae": "ae.safetensors",
+    },
+    "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": {
+        "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": "flux-schnell-4bit-quantized.safetensors",
+        "vae": "ae.safetensors",
+    },
+    "argmaxinc/mlx-FLUX.1-dev": {
+        "argmaxinc/mlx-FLUX.1-dev": "flux1-dev.safetensors",
+        "vae": "ae.safetensors",
+    },
     "argmaxinc/mlx-stable-diffusion-3.5-large": {
-        "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors", 
-        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "sd3.5_large-Q4_K_S.gguf",
-        "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "sd3.5_large-Q8_0.gguf",
+        "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors",
         "vae": "sd3.5_large.safetensors",
-    }
+    },
+    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": {
+        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "sd3.5_large_4bit_quantized.safetensors",
+        "vae": "sd3.5_large_4bit_quantized.safetensors",
+    },
 }
 _DEFAULT_MODEL = "argmaxinc/stable-diffusion"
 _MODELS = {
@@ -800,29 +804,6 @@ def load_mmdit(
     
     return model
 
-def load_gguf_weights(filepath: str):
-    """Load weights from a GGUF file format.
-    
-    Args:
-        filepath: Path to the GGUF file, can be either a local path or a downloaded HuggingFace file
-    
-    Returns:
-        Loaded weights dictionary
-        
-    Raises:
-        ImportError: If gguf package is not installed
-        ValueError: If the file is not found or invalid
-    """
-    try:
-        import gguf
-        if not os.path.exists(filepath):
-            raise ValueError(f"GGUF file not found: {filepath}")
-        try:
-            return gguf.load(filepath)
-        except Exception as e:
-            raise ValueError(f"Failed to load GGUF file {filepath}: {str(e)}")
-    except ImportError:
-        raise ImportError("Please install gguf package to load quantized models")
 
 def load_flux(
     key: str = "argmaxinc/mlx-FLUX.1-schnell",

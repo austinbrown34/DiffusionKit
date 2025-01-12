@@ -41,6 +41,8 @@ MMDIT_CKPT = {
     "argmaxinc/mlx-FLUX.1-schnell": "argmaxinc/mlx-FLUX.1-schnell",
     "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized",
     "argmaxinc/mlx-FLUX.1-dev": "argmaxinc/mlx-FLUX.1-dev",
+    "argmaxinc/mlx-stable-diffusion-3-medium-8bit-quantized": "argmaxinc/mlx-stable-diffusion-3-medium-8bit-quantized",
+    "argmaxinc/mlx-stable-diffusion-3.5-large-8bit-quantized": "argmaxinc/mlx-stable-diffusion-3.5-large-8bit-quantized",
 }
 
 T5_MAX_LENGTH = {
@@ -50,6 +52,8 @@ T5_MAX_LENGTH = {
     "argmaxinc/mlx-FLUX.1-schnell": 256,
     "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": 256,
     "argmaxinc/mlx-FLUX.1-dev": 512,
+    "argmaxinc/mlx-stable-diffusion-3-medium-8bit-quantized": 512,
+    "argmaxinc/mlx-stable-diffusion-3.5-large-8bit-quantized": 512,
 }
 
 

@@ -34,6 +34,7 @@ setup(
         "transformers",
         "pillow",
         "sentencepiece",
+        "huggingface_hub"
     ],
     packages=find_packages(where="python/src"),
     package_dir={"": "python/src"},

@@ -6,8 +6,7 @@
 #
 
 import json
-import os
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Optional
 
 import mlx.core as mx
 from huggingface_hub import hf_hub_download
@@ -35,28 +34,31 @@ from .vae import Autoencoder, VAEDecoder, VAEEncoder
 
 RANK = 32
 _DEFAULT_MMDIT = "argmaxinc/mlx-stable-diffusion-3-medium"
-MMDIT_CKPT = {
-    "argmaxinc/mlx-stable-diffusion-3-medium": "argmaxinc/mlx-stable-diffusion-3-medium",
-    "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "argmaxinc/mlx-stable-diffusion-3-medium-4bit",
-    "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "argmaxinc/mlx-stable-diffusion-3-medium-8bit",
-    "argmaxinc/mlx-stable-diffusion-3.5-large": "argmaxinc/mlx-stable-diffusion-3.5-large",
-    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized",
-    "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "argmaxinc/mlx-stable-diffusion-3.5-large-8bit",
-}
-
 _MMDIT = {
     "argmaxinc/mlx-stable-diffusion-3-medium": {
         "argmaxinc/mlx-stable-diffusion-3-medium": "sd3_medium.safetensors",
-        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "mflux_models/sd3-medium-4bit/sd3_medium-Q4_K_M.gguf",
-        "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "mflux_models/sd3-medium-8bit/sd3_medium-Q8_0.gguf",
         "vae": "sd3_medium.safetensors",
+    },
+    "argmaxinc/mlx-FLUX.1-schnell": {
+        "argmaxinc/mlx-FLUX.1-schnell": "flux-schnell.safetensors",
+        "vae": "ae.safetensors",
+    },
+    "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": {
+        "argmaxinc/mlx-FLUX.1-schnell-4bit-quantized": "flux-schnell-4bit-quantized.safetensors",
+        "vae": "ae.safetensors",
+    },
+    "argmaxinc/mlx-FLUX.1-dev": {
+        "argmaxinc/mlx-FLUX.1-dev": "flux1-dev.safetensors",
+        "vae": "ae.safetensors",
     },
     "argmaxinc/mlx-stable-diffusion-3.5-large": {
         "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors",
-        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized",
-        "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "mflux_models/sd3-large-8bit/sd3.5_large-Q8_0.gguf",
         "vae": "sd3.5_large.safetensors",
-    }
+    },
+    "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": {
+        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized": "sd3.5_large_4bit_quantized.safetensors",
+        "vae": "sd3.5_large_4bit_quantized.safetensors",
+    },
 }
 _DEFAULT_MODEL = "argmaxinc/stable-diffusion"
 _MODELS = {
@@ -702,101 +704,6 @@ def _check_key(key: str, part: str):
             f"[{part}] '{key}' model not found, choose one of {{{','.join(_MODELS.keys())}}}"
         )
 
-# Add this before load_mmdit
-def convert_gguf_state_dict(weights):
-    """Converts GGUF weights to the expected format by adding missing scales and biases.
-    
-    Args:
-        weights: Dictionary of weights from GGUF file
-        
-    Returns:
-        Dictionary of weights with added scales and biases
-    """
-    converted = {}
-    # Add scales and biases for missing layers
-    for k, v in weights.items():
-        converted[k] = v
-        if '.weight' in k:
-            base_name = k.replace('.weight', '')
-            if base_name + '.scales' not in weights:
-                converted[base_name + '.scales'] = mx.ones(())
-            if base_name + '.biases' not in weights:
-                converted[base_name + '.biases'] = mx.zeros(())
-            
-    # Add missing embedder and layer scales/biases
-    for name in ['context_embedder', 'final_layer', 'x_pos_embedder']:
-        if name + '.scales' not in converted:
-            converted[name + '.scales'] = mx.ones(())
-        if name + '.biases' not in converted:
-            converted[name + '.biases'] = mx.zeros(())
-            
-    # Add missing transformer block scales/biases
-    for i in range(24):  # Assuming 24 transformer blocks
-        for block_type in ['text', 'image']:
-            base = f'multimodal_transformer_blocks.{i}.{block_type}_transformer_block'
-            for part in ['attn', 'mlp']:
-                if part == 'attn':
-                    for proj in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
-                        name = f'{base}.{part}.{proj}'
-                        if name + '.scales' not in converted:
-                            converted[name + '.scales'] = mx.ones(())
-                        if name + '.biases' not in converted:
-                            converted[name + '.biases'] = mx.zeros(())
-                else:
-                    for fc in ['fc1', 'fc2']:
-                        name = f'{base}.{part}.{fc}'
-                        if name + '.scales' not in converted:
-                            converted[name + '.scales'] = mx.ones(())
-                        if name + '.biases' not in converted:
-                            converted[name + '.biases'] = mx.zeros(())
-                            
-            # Add adaLN modulation layers
-            name = f'{base}.adaLN_modulation.layers.1'
-            if name + '.scales' not in converted:
-                converted[name + '.scales'] = mx.ones(())
-            if name + '.biases' not in converted:
-                converted[name + '.biases'] = mx.zeros(())
-                
-    return converted
-
-def load_gguf_file(filepath: str) -> Dict[str, Any]:
-    """Load weights from a GGUF file format.
-    
-    Args:
-        filepath: Path to the GGUF file
-        
-    Returns:
-        Dictionary of weights
-        
-    Raises:
-        ImportError: If gguf package is not installed
-        ValueError: If file loading fails
-    """
-    try:
-        import gguf
-        import numpy as np
-        
-        # Open and read the GGUF file
-        reader = gguf.GGUFReader(filepath)
-        
-        # Convert to dictionary format
-        weights = {}
-        # Reader.tensors is a list of gguf.Tensor objects with name and data attributes
-        for tensor in reader.tensors:
-            tensor_name = tensor.name
-            tensor_data = tensor.data
-            if isinstance(tensor_data, np.ndarray):
-                weights[tensor_name] = mx.array(tensor_data)
-            else:
-                # Handle case where tensor_data is not a numpy array
-                weights[tensor_name] = mx.array(np.array(tensor_data))
-            
-        return weights
-        
-    except ImportError:
-        raise ImportError("Please install gguf package to load quantized models")
-    except Exception as e:
-        raise ValueError(f"Failed to load GGUF file {filepath}: {str(e)}")
 
 def load_mmdit(
     key: str = _DEFAULT_MMDIT,
@@ -804,68 +711,36 @@ def load_mmdit(
     model_key: str = "mmdit_2b",
     low_memory_mode: bool = True,
     only_modulation_dict: bool = False,
-    quantization: Optional[str] = None,  # "4bit" or "8bit"
-    quantized_gguf_path: Optional[str] = None
-) -> Union[MMDiT, List[Tuple[str, mx.array]]]:
+):
     """Load the MM-DiT model from the checkpoint file."""
+    """only_modulation_dict: Only returns the modulation dictionary"""
     dtype = _FLOAT16 if float16 else mx.float32
     config = _CONFIG[key]
     config.low_memory_mode = low_memory_mode
     model = MMDiT(config)
 
-    # Handle quantization if specified
-    if quantization:
-        if quantization not in ["4bit", "8bit"]:
-            raise ValueError("Quantization must be either '4bit' or '8bit'")
-        bits = int(quantization[0])
-        nn.quantize(model, bits=bits)
+    mmdit_weights = _MMDIT[key][model_key]
+    mmdit_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, mmdit_weights)
+    hf_hub_download(key, "config.json")
+    weights = mx.load(mmdit_weights_ckpt)
+    prefix = "model.diffusion_model."
 
-        # Modify model key for quantized version
-        model_key = f"{key}-{quantization}"
-
-    # Load weights based on source
-    if quantized_gguf_path:
-        # Use provided local GGUF file
-        if not os.path.exists(quantized_gguf_path):
-            raise ValueError(f"GGUF file not found: {quantized_gguf_path}")
-        weights_path = quantized_gguf_path
+    if key != "argmaxinc/mlx-stable-diffusion-3.5-large-4bit-quantized":
+        weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
     else:
-        # Get path from _MMDIT dictionary
-        weights_path = _MMDIT[key][model_key]
-        if not os.path.exists(weights_path):
-            # If not a local path, try downloading from HuggingFace
-            weights_path = LOCAl_SD3_CKPT or hf_hub_download(key, weights_path)
+        nn.quantize(
+            model, class_predicate=lambda _, module: isinstance(module, nn.Linear)
+        )
+        weights = {k.replace(prefix, ""): v for k, v in weights.items() if prefix in k}
 
-    # Load and process weights
-    if isinstance(weights_path, str) and weights_path.endswith('.gguf'):
-        # Load GGUF file
-        weights = load_gguf_file(weights_path)
-        # Convert GGUF weights to expected format
-        weights = convert_gguf_state_dict(weights)
-    else:
-        weights = mx.load(weights_path)
-        if key.startswith("argmaxinc/mlx-FLUX"):
-            weights = flux_state_dict_adjustments(
-                weights,
-                prefix="",
-                hidden_size=config.hidden_size,
-                mlp_ratio=config.mlp_ratio
-            )
-        else:
-            prefix = "model.diffusion_model."
-            weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
-
-    # Convert weights to proper dtype
     weights = {
-        k: v.astype(dtype) if v.dtype != mx.uint32 else v 
-        for k, v in weights.items()
+        k: v.astype(dtype) if v.dtype != mx.uint32 else v for k, v in weights.items()
     }
-    
     if only_modulation_dict:
         weights = {k: v for k, v in weights.items() if "adaLN" in k}
         return tree_flatten(weights)
-    
     model.load_weights(list(weights.items()))
+
     return model
 
 

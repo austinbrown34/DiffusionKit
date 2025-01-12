@@ -47,13 +47,13 @@ MMDIT_CKPT = {
 _MMDIT = {
     "argmaxinc/mlx-stable-diffusion-3-medium": {
         "argmaxinc/mlx-stable-diffusion-3-medium": "sd3_medium.safetensors",
-        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "sd3_medium-Q4_K_S.gguf",
+        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "sd3_medium-Q4_K_M.gguf",
         "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "sd3_medium-Q8_0.gguf",
         "vae": "sd3_medium.safetensors",
     },
     "argmaxinc/mlx-stable-diffusion-3.5-large": {
         "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors", 
-        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "sd3.5_large-Q4_K_S.gguf",
+        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "sd3.5_large-Q4_K_M.gguf",
         "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "sd3.5_large-Q8_0.gguf",
         "vae": "sd3.5_large.safetensors",
     }

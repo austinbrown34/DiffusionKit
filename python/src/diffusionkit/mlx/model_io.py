@@ -47,14 +47,14 @@ MMDIT_CKPT = {
 _MMDIT = {
     "argmaxinc/mlx-stable-diffusion-3-medium": {
         "argmaxinc/mlx-stable-diffusion-3-medium": "sd3_medium.safetensors",
-        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "sd3_medium-Q4_K_M.gguf",
-        "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "sd3_medium-Q8_0.gguf",
+        "argmaxinc/mlx-stable-diffusion-3-medium-4bit": "mflux_models/sd3-medium-4bit/sd3_medium-Q4_K_M.gguf",
+        "argmaxinc/mlx-stable-diffusion-3-medium-8bit": "mflux_models/sd3-medium-8bit/sd3_medium-Q8_0.gguf",
         "vae": "sd3_medium.safetensors",
     },
     "argmaxinc/mlx-stable-diffusion-3.5-large": {
-        "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors", 
-        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "sd3.5_large-Q4_K_M.gguf",
-        "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "sd3.5_large-Q8_0.gguf",
+        "argmaxinc/mlx-stable-diffusion-3.5-large": "sd3.5_large.safetensors",
+        "argmaxinc/mlx-stable-diffusion-3.5-large-4bit": "mflux_models/sd3-large-4bit/sd3.5_large-Q4_K_M.gguf",
+        "argmaxinc/mlx-stable-diffusion-3.5-large-8bit": "mflux_models/sd3-large-8bit/sd3.5_large-Q8_0.gguf",
         "vae": "sd3.5_large.safetensors",
     }
 }
@@ -765,52 +765,60 @@ def load_mmdit(
     model_key: str = "mmdit_2b",
     low_memory_mode: bool = True,
     only_modulation_dict: bool = False,
-    quantization: Optional[str] = None,  # Add quantization parameter
-    quantized_gguf_path: Optional[str] = None  # Add path to local GGUF file
-):
-    """Load the MM-DiT model from the checkpoint file.
-    
-    Args:
-        quantization: Optional quantization level ("4bit" or "8bit")
-    """
+    quantization: Optional[str] = None,  # "4bit" or "8bit"
+    quantized_gguf_path: Optional[str] = None
+) -> Union[MMDiT, List[Tuple[str, mx.array]]]:
+    """Load the MM-DiT model from the checkpoint file."""
     dtype = _FLOAT16 if float16 else mx.float32
     config = _CONFIG[key]
     config.low_memory_mode = low_memory_mode
     model = MMDiT(config)
-    
-    # Modify key based on quantization
+
+    # Handle quantization if specified
     if quantization:
         if quantization not in ["4bit", "8bit"]:
             raise ValueError("Quantization must be either '4bit' or '8bit'")
-        key_suffix = "-4bit" if quantization == "4bit" else "-8bit"
-        model_key = f"{model_key}{key_suffix}"
+        bits = int(quantization[0])
+        nn.quantize(model, bits=bits)
 
-    # Handle local GGUF file if provided
-    if quantization and quantized_gguf_path:
+        # Modify model key for quantized version
+        model_key = f"{key}-{quantization}"
+
+    # Load weights based on source
+    if quantized_gguf_path:
+        # Use provided local GGUF file
         if not os.path.exists(quantized_gguf_path):
-            raise ValueError(f"Local GGUF file not found: {quantized_gguf_path}")
-        mmdit_weights_ckpt = quantized_gguf_path
-        weights = load_gguf_weights(mmdit_weights_ckpt)
+            raise ValueError(f"GGUF file not found: {quantized_gguf_path}")
+        weights_path = quantized_gguf_path
     else:
-        mmdit_weights = _MMDIT[key][model_key]
-        mmdit_weights_ckpt = LOCAl_SD3_CKPT or hf_hub_download(key, mmdit_weights)
-        
-        # Load weights based on format
-        if mmdit_weights.endswith('.gguf'):
-            # Handle GGUF quantized weights
-            weights = load_gguf_weights(mmdit_weights_ckpt)
+        # Get path from _MMDIT dictionary
+        weights_path = _MMDIT[key][model_key]
+        if not os.path.exists(weights_path):
+            # If not a local path, try downloading from HuggingFace
+            weights_path = LOCAl_SD3_CKPT or hf_hub_download(key, weights_path)
+
+    # Load and process weights
+    if weights_path.endswith('.gguf'):
+        try:
+            import gguf
+            weights = gguf.load(weights_path)
             weights = convert_gguf_state_dict(weights)
+        except ImportError:
+            raise ImportError("Please install gguf package to load quantized models")
+        except Exception as e:
+            raise ValueError(f"Failed to load GGUF file {weights_path}: {str(e)}")
+    else:
+        weights = mx.load(weights_path)
+        if key.startswith("argmaxinc/mlx-FLUX"):
+            weights = flux_state_dict_adjustments(
+                weights,
+                prefix="",
+                hidden_size=config.hidden_size,
+                mlp_ratio=config.mlp_ratio
+            )
         else:
-            # Handle regular safetensors weights
-            weights = mx.load(mmdit_weights_ckpt)
             prefix = "model.diffusion_model."
             weights = mmdit_state_dict_adjustments(weights, prefix=prefix)
-
-    # Apply quantization if specified
-    if quantization == "4bit":
-        nn.quantize(model, bits=4)
-    elif quantization == "8bit":
-        nn.quantize(model, bits=8)
 
     # Convert weights to proper dtype
     weights = {
@@ -818,14 +826,11 @@ def load_mmdit(
         for k, v in weights.items()
     }
     
-    # Handle modulation dictionary if requested
     if only_modulation_dict:
         weights = {k: v for k, v in weights.items() if "adaLN" in k}
         return tree_flatten(weights)
     
-    # Load weights into model
     model.load_weights(list(weights.items()))
-    
     return model
 
 def load_gguf_weights(filepath: str):
